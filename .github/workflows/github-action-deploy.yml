@@ -1,0 +1,65 @@
+name: Build & Deploy
+
+on:
+  push:
+    branches: [ dev ]
+
+jobs:
+  build-deploy:
+    name: Build & Deploy to K8s
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Public IP
+        id: ip
+        uses: haythem/public-ip@v1.3
+
+      - name: Check out source repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python environment for Linter
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+      
+      - name: flake8 Linter
+        uses: py-actions/flake8@v2    
+
+      - name: Build on Runner
+        env:
+            SSH_HOST: ${{secrets.SSH_HOST}}
+            SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+            SSH_USER: ${{secrets.SSH_USER}}
+
+        run: |
+          eval `ssh-agent -s`
+          cd $GITHUB_WORKSPACE/container
+          echo "$SSH_PRIVATE_KEY" > ssh_private_key.pem && chmod 600 ssh_private_key.pem
+          ssh-add $GITHUB_WORKSPACE/container/ssh_private_key.pem
+          cp ../requirements.txt .
+          cp ../app.py .
+          docker build --build-arg host="$SSH_HOST" -t clientxyz/py-api:latest .
+          rm app.py
+          rm requirements.txt
+          docker save -o $GITHUB_WORKSPACE/py-api.tar clientxyz/py-api:latest
+          scp -o StrictHostKeyChecking=no -i ssh_private_key.pem $GITHUB_WORKSPACE/py-api.tar ${SSH_USER}@${SSH_HOST}:/home/${SSH_USER}/py-api.tar
+          rm ssh_private_key.pem
+   
+      - name: Deploy on EC2 Server
+        env:
+            SSH_HOST: ${{secrets.SSH_HOST}}
+            SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+            SSH_USER: ${{secrets.SSH_USER}}
+      
+        run: |
+          echo "$SSH_PRIVATE_KEY" > ssh_private_key.pem && chmod 600 ssh_private_key.pem
+          ssh -o StrictHostKeyChecking=no -i ssh_private_key.pem ${SSH_USER}@${SSH_HOST} '
+
+              # Update existing deployment
+              cd /home/ec2-user &&
+              echo "Loading latest image into Kubernetes Cluster ...." &&
+              minikube image load py-api.tar &&
+              minikube kubectl -- rollout restart deployment/py-api-dep &&
+              echo "Waiting for Ready staus of Pod in Cluster ...." &&
+              minikube kubectl -- wait pods -l app=py-api-dev-app --for=condition=Ready
+              '
