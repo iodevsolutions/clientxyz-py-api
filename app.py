@@ -14,7 +14,7 @@ description = """
                 <title>REST API Landing Page</title>
                 </head>
                 <body>
-                    <h3>A very simple REST API using that returns a JSON \
+                    <h3>A very very simple REST API using that returns a JSON \
                     payload with the current timestamp</h3>
                     <a href="http://{host}:7080/api">http://{host}:7080/api</a>
                 </body>
